@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>아동 치료일지 관리 앱</title>
+    <!-- Google Fonts: Pretendard -->
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+    <link rel="stylesheet" href="./styles.css">
+    <!-- html2pdf.js for client side pdf generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+    <div id="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <h1 class="logo">✨ 치료일지 관리</h1>
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-target="home">홈 / 아동 목록</button>
+                
+                <div style="margin-top: 30px; border-top: 1px solid var(--primary-light); padding-top: 20px;">
+                    <button class="nav-btn" style="width: 100%; text-align: left;" onclick="document.getElementById('import-file').click()">📥 기존 데이터 불러오기(복원)</button>
+                    <button class="nav-btn" style="width: 100%; text-align: left;" onclick="app.exportData()">📤 내 데이터 내보내기</button>
+                    <input type="file" id="import-file" style="display: none" accept=".json" onchange="app.importData(event)">
+                </div>
+            </nav>
+            <div class="sidebar-footer">
+                로컬 저장소 동기화 중...
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Home / Child List View -->
+            <section id="view-home" class="view-section active">
+                <div class="header-action">
+                    <h2>아동 목록</h2>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <select id="filter-therapist" onchange="app.renderChildList()" style="padding: 10px 16px; border: 1px solid var(--primary-light); border-radius: 12px; font-family: inherit; outline: none;">
+                            <option value="ALL">모든 치료사 보기</option>
+                        </select>
+                        <button class="btn-primary" onclick="app.showAddChildModal()">+ 새 아동 등록</button>
+                    </div>
+                </div>
+                <!-- Card Grid -->
+                <div id="child-grid" class="card-grid">
+                    <!-- Cards will be populated here -->
+                </div>
+            </section>
+
+            <!-- Therapy Detail View -->
+            <section id="view-detail" class="view-section hidden">
+                <div class="header-action">
+                    <div class="detail-title-wrapper">
+                        <button class="btn-icon" onclick="app.navigate('home')">←</button>
+                        <h2 id="detail-title">아동 정보</h2>
+                    </div>
+                </div>
+                
+                <div class="detail-grid">
+                    <!-- Child Info Box -->
+                    <div class="info-card glass-panel">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--primary-light); margin-bottom: 20px; padding-bottom: 12px;">
+                            <h3 style="border: none; margin: 0; padding: 0;">기본 정보</h3>
+                            <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="app.showEditChildModal()">정보 수정</button>
+                        </div>
+                        <div id="detail-info-content" class="info-content">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Records Box -->
+                    <div class="records-card glass-panel">
+                        <div class="records-header">
+                            <h3>월별 치료 기록</h3>
+                            <div class="records-actions">
+                                <input type="month" id="record-month-picker" onchange="app.loadRecords()">
+                                <button class="btn-secondary" onclick="app.showAddRecordModal()">+ 1회 일지 추가</button>
+                                <button class="btn-primary" style="background: var(--primary);" onclick="app.showAutoScheduleModal()">📅 스케줄 자동 생성</button>
+                                <button class="btn-download" onclick="app.generatePDF()">📄 일지 다운로드</button>
+                                <!-- <button class="btn-download" onclick="app.generateConfirmationPDF()" style="background: #10b981;">📝 확인표 ▾</button> -->
+                            </div>
+                        </div>
+                        <div id="records-list" class="records-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- Add Child Modal -->
+    <div id="modal-add-child" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>새 아동 등록</h3>
+            <form id="form-add-child" onsubmit="event.preventDefault(); app.saveChild();">
+                <div class="form-group">
+                    <label>아동 성명</label>
+                    <input type="text" id="input-child-name" required>
+                </div>
+                <div class="form-group">
+                    <label>생년월일</label>
+                    <input type="date" id="input-child-birth" required>
+                </div>
+                <div class="form-group">
+                    <label>치료사 성명</label>
+                    <input type="text" id="input-child-therapist" required>
+                </div>
+                <div class="form-group">
+                    <label>전월 누계 제공회차</label>
+                    <input type="number" id="input-child-prev-sessions" min="0" value="0" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-ghost" onclick="app.closeModal('modal-add-child')">취소</button>
+                    <button type="submit" class="btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Child Modal -->
+    <div id="modal-edit-child" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>아동 정보 수정</h3>
+            <form id="form-edit-child" onsubmit="event.preventDefault(); app.updateChild();">
+                <div class="form-group">
+                    <label>아동 성명</label>
+                    <input type="text" id="edit-child-name" required>
+                </div>
+                <div class="form-group">
+                    <label>생년월일</label>
+                    <input type="date" id="edit-child-birth" required>
+                </div>
+                <div class="form-group">
+                    <label>치료사 성명</label>
+                    <input type="text" id="edit-child-therapist" required>
+                </div>
+                <div class="form-group">
+                    <label>등록 시 기준 누계회차 (전월 누계 제공회차)</label>
+                    <input type="number" id="edit-child-prev-sessions" min="0" required>
+                </div>
+                <div class="form-actions" style="justify-content: space-between;">
+                    <button type="button" class="btn-ghost" style="color: #ef4444;" onclick="app.deleteChild()">🗑️ 기록 전체 삭제</button>
+                    <div style="display: flex; gap: 12px;">
+                        <button type="button" class="btn-ghost" onclick="app.closeModal('modal-edit-child')">취소</button>
+                        <button type="submit" class="btn-primary">수정 완료</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Record Modal -->
+    <div id="modal-add-record" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>치료 기록 추가</h3>
+            <form id="form-add-record" onsubmit="event.preventDefault(); app.saveRecord();">
+                <div class="form-group">
+                    <label>날짜</label>
+                    <input type="date" id="input-record-date" required>
+                </div>
+                <div class="form-group">
+                    <label>시간 (1시간 단위)</label>
+                    <select id="input-record-time" aria-label="시간 선택" required>
+                        <option value="09:00~10:00">09:00~10:00</option>
+                        <option value="10:00~11:00">10:00~11:00</option>
+                        <option value="11:00~12:00">11:00~12:00</option>
+                        <option value="12:00~13:00">12:00~13:00</option>
+                        <option value="13:00~14:00">13:00~14:00</option>
+                        <option value="14:00~15:00">14:00~15:00</option>
+                        <option value="15:00~16:00">15:00~16:00</option>
+                        <option value="16:00~17:00">16:00~17:00</option>
+                        <option value="17:00~18:00">17:00~18:00</option>
+                        <option value="18:00~19:00">18:00~19:00</option>
+                        <option value="19:00~20:00">19:00~20:00</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>상담 내용</label>
+                    <textarea id="input-record-content" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>부모 상담 내용</label>
+                    <textarea id="input-record-parent-content" rows="2" placeholder="(선택사항) 진행한 부모 상담 내용이 있다면 적어주세요."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>기타 사항</label>
+                    <textarea id="input-record-etc-content" rows="2" placeholder="(선택사항) 기타 특이사항이나 추가 메모를 적어주세요."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-ghost" onclick="app.closeModal('modal-add-record')">취소</button>
+                    <button type="submit" class="btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Record Modal -->
+    <div id="modal-edit-record" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>치료 기록 수정</h3>
+            <form id="form-edit-record" onsubmit="event.preventDefault(); app.updateRecord();">
+                <div class="form-group">
+                    <label>날짜</label>
+                    <input type="date" id="edit-record-date" required>
+                </div>
+                <div class="form-group">
+                    <label>시간 (1시간 단위)</label>
+                    <select id="edit-record-time" aria-label="시간 선택" required>
+                        <option value="09:00~10:00">09:00~10:00</option>
+                        <option value="10:00~11:00">10:00~11:00</option>
+                        <option value="11:00~12:00">11:00~12:00</option>
+                        <option value="12:00~13:00">12:00~13:00</option>
+                        <option value="13:00~14:00">13:00~14:00</option>
+                        <option value="14:00~15:00">14:00~15:00</option>
+                        <option value="15:00~16:00">15:00~16:00</option>
+                        <option value="16:00~17:00">16:00~17:00</option>
+                        <option value="17:00~18:00">17:00~18:00</option>
+                        <option value="18:00~19:00">18:00~19:00</option>
+                        <option value="19:00~20:00">19:00~20:00</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>상담 내용</label>
+                    <textarea id="edit-record-content" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>부모 상담 내용</label>
+                    <textarea id="edit-record-parent-content" rows="2" placeholder="(선택사항) 진행한 부모 상담 내용이 있다면 적어주세요."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>기타 사항</label>
+                    <textarea id="edit-record-etc-content" rows="2" placeholder="(선택사항) 기타 특이사항이나 추가 메모를 적어주세요."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-ghost" onclick="app.closeModal('modal-edit-record')">취소</button>
+                    <button type="submit" class="btn-primary">수정 완료</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Auto Schedule Modal -->
+    <div id="modal-auto-schedule" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>📅 월간 스케줄 일괄 자동 생성</h3>
+            <p style="font-size: 0.9rem; color: #555; margin-bottom: 20px;">
+                선택하신 월의 특정 요일을 모두 달력에서 찾아내어, 미리 정해두신 시간에 맞춰 <strong>빈 상담일지(껍데기)</strong>를 일괄 생성합니다! 이후 확인표를 출력하면 날짜와 시간이 완벽히 기입되어 나옵니다.
+            </p>
+            <form id="form-auto-schedule" onsubmit="event.preventDefault(); app.generateAutoSchedule();">
+                <div class="form-group">
+                    <label>스케줄을 생성할 월 (기준 연/월)</label>
+                    <input type="month" id="auto-schedule-month" required>
+                </div>
+                <div class="form-group">
+                    <label>진행 요일</label>
+                    <select id="auto-schedule-weekday" required>
+                        <option value="1">월요일마다</option>
+                        <option value="2">화요일마다</option>
+                        <option value="3">수요일마다</option>
+                        <option value="4">목요일마다</option>
+                        <option value="5">금요일마다</option>
+                        <option value="6">토요일마다</option>
+                        <option value="0">일요일마다</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>진행 시간 (1시간 단위)</label>
+                    <select id="auto-schedule-time" required>
+                        <option value="09:00~10:00">09:00~10:00</option>
+                        <option value="10:00~11:00">10:00~11:00</option>
+                        <option value="11:00~12:00">11:00~12:00</option>
+                        <option value="12:00~13:00">12:00~13:00</option>
+                        <option value="13:00~14:00">13:00~14:00</option>
+                        <option value="14:00~15:00">14:00~15:00</option>
+                        <option value="15:00~16:00">15:00~16:00</option>
+                        <option value="16:00~17:00">16:00~17:00</option>
+                        <option value="17:00~18:00">17:00~18:00</option>
+                        <option value="18:00~19:00">18:00~19:00</option>
+                        <option value="19:00~20:00">19:00~20:00</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-ghost" onclick="app.closeModal('modal-auto-schedule')">취소</button>
+                    <button type="submit" class="btn-primary">한 번에 자동 생성하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- PDF Generation Template (Hidden, Used purely for html2pdf) -->
+    <!-- Designed specifically to mimic the user's provided HWP format -->
+    <div style="display: none;">
+        <div id="pdf-template" class="pdf-container">
+            <h1 class="pdf-title">놀이심리 프로그램 상담일지</h1>
+            
+            <!-- Approval Table -->
+            <table class="pdf-approval-table">
+                <tr>
+                    <th rowspan="2" class="approval-header">결<br><br>재</th>
+                    <th>강사</th>
+                    <th>담당</th>
+                    <th>과장</th>
+                    <th style="white-space: nowrap;">부장</th>
+                    <th>관장</th>
+                </tr>
+                <tr class="approval-empty-row">
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="sign-text" style="white-space: nowrap;">(전결)</td>
+                    <td></td>
+                </tr>
+            </table>
+
+            <!-- Info Table -->
+            <table class="pdf-info-table">
+                <tr>
+                    <td class="info-label">이용자 성명</td>
+                    <td class="info-value" id="pdf-name"></td>
+                    <td class="info-label">생년월일<br>(나이)</td>
+                    <td class="info-value" id="pdf-age"></td>
+                    <td class="info-label">치료사 성명</td>
+                    <td class="info-value" id="pdf-therapist"></td>
+                </tr>
+                <tr>
+                    <td class="info-label" colspan="2">전월 누계 제공회차</td>
+                    <td class="info-value" id="pdf-prev-sessions"></td>
+                    <td class="info-label" colspan="2">누적 누계 제공회차</td>
+                    <td class="info-value" id="pdf-total-sessions"></td>
+                </tr>
+            </table>
+
+            <!-- Records Table -->
+            <table class="pdf-records-table">
+                <thead>
+                    <tr>
+                        <th class="record-col-1">제공회차</th>
+                        <th class="record-col-2">상담내용</th>
+                    </tr>
+                </thead>
+                <tbody id="pdf-records-body">
+                    <!-- Populated dynamically (Up to 5 rows or as needed) -->
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td class="info-label">종 합 의 견</td>
+                        <td class="comprehensive-opinion">
+                            <div class="opinion-box"></div>
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div class="pdf-footer">
+                수서아동가족상담터
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Form PDF Template -->
+    <div style="display: none;">
+        <div id="pdf-confirmation-template" class="pdf-container">
+            <h1 class="pdf-title" id="pdf-conf-title" style="font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 25px;">
+                아동·청소년심리지원서비스 X월 X심리 프로그램 상담 확인표
+            </h1>
+            
+            <div style="margin-bottom: 15px; font-size: 15px; font-weight: bold;">
+                이름: <span id="pdf-conf-name">아동명(생년월일)</span> / (바우처)
+            </div>
+
+            <table class="pdf-records-table">
+                <thead>
+                    <tr>
+                        <th style="width: 10%;">연번</th>
+                        <th style="width: 25%;">날짜(상담회기)</th>
+                        <th style="width: 25%;">시간</th>
+                        <th style="width: 25%;">이용자 확인</th>
+                        <th style="width: 15%;">기타</th>
+                    </tr>
+                </thead>
+                <tbody id="pdf-conf-tbody">
+                    <!-- 10 rows filled via JS -->
+                </tbody>
+            </table>
+
+            <div style="margin-top: 20px; font-size: 14px; font-weight: bold; text-align: left;">
+                * 이용자 확인란은 반드시 사인이 아닌 아동 이름으로 작성해 주세요. 
+            </div>
+        </div>
+    </div>
+
+    <!-- Logic Script -->
+    <script src="./app.js"></script>
+</body>
+</html>
